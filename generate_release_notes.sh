@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+# this is just a test
 
+fail me
 LATEST_TAG=$1
 HEAD_BRANCH=$2
 GRID_VERSION=$3
