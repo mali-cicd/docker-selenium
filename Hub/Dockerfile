@@ -1,32 +1,31 @@
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# NOTE: DO *NOT* EDIT THIS FILE.  IT IS GENERATED.
-# PLEASE UPDATE Dockerfile.txt INSTEAD OF THIS FILE
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-FROM selenium/base:3.0.1-fermium
-MAINTAINER Selenium <selenium-developers@googlegroups.com>
+ARG NAMESPACE
+ARG VERSION
+ARG AUTHORS
+FROM ${NAMESPACE}/base:${VERSION}
+LABEL authors=${AUTHORS}
+
+USER ${SEL_UID}
 
 #========================
-# Selenium Configuration
+# Selenium Hub Configuration
 #========================
 
+EXPOSE 4442
+EXPOSE 4443
 EXPOSE 4444
 
-ENV GRID_THROW_ON_CAPABILITY_NOT_PRESENT true
-ENV GRID_NEW_SESSION_WAIT_TIMEOUT -1
-ENV GRID_JETTY_MAX_THREADS -1
-ENV GRID_NODE_POLLING  5000
-ENV GRID_CLEAN_UP_CYCLE 5000
-ENV GRID_TIMEOUT 30000
-ENV GRID_BROWSER_TIMEOUT 0
-ENV GRID_MAX_SESSION 5
-ENV GRID_UNREGISTER_IF_STILL_DOWN_AFTER 30000
+# In seconds, maps to "--session-request-timeout"
+ENV SE_SESSION_REQUEST_TIMEOUT 300
+# In seconds, maps to "--session-retry-interval"
+ENV SE_SESSION_RETRY_INTERVAL 15
+# In seconds, maps to "--healthcheck-interval"
+ENV SE_HEALTHCHECK_INTERVAL 120
+# Boolean value, maps "--relax-checks"
+ENV SE_RELAX_CHECKS true
 
-COPY generate_config /opt/selenium/generate_config
-COPY entry_point.sh /opt/bin/entry_point.sh
-RUN /opt/selenium/generate_config > /opt/selenium/config.json
-RUN chown -R seluser /opt/selenium
+COPY --chown="${SEL_UID}:${SEL_GID}" start-selenium-grid-hub.sh \
+    /opt/bin/
 
-USER seluser
+COPY selenium-grid-hub.conf /etc/supervisor/conf.d/
 
-CMD ["/opt/bin/entry_point.sh"]
-
+ENV SE_OTEL_SERVICE_NAME "selenium-hub"

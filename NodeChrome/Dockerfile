@@ -1,9 +1,8 @@
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# NOTE: DO *NOT* EDIT THIS FILE.  IT IS GENERATED.
-# PLEASE UPDATE Dockerfile.txt INSTEAD OF THIS FILE
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-FROM selenium/node-base:3.0.1-fermium
-MAINTAINER Selenium <selenium-developers@googlegroups.com>
+ARG NAMESPACE
+ARG VERSION
+ARG AUTHORS
+FROM ${NAMESPACE}/node-base:${VERSION}
+LABEL authors=${AUTHORS}
 
 USER root
 
@@ -11,52 +10,69 @@ USER root
 # Google Chrome
 #============================================
 # can specify versions by CHROME_VERSION;
-#  e.g. google-chrome-stable=53.0.2785.101-1
-#       google-chrome-beta=53.0.2785.92-1
-#       google-chrome-unstable=54.0.2840.14-1
-#       latest (equivalent to google-chrome-stable)
-#       google-chrome-beta  (pull latest beta)
+#  e.g. google-chrome-stable
+#       google-chrome-beta
+#       google-chrome-unstable
 #============================================
 ARG CHROME_VERSION="google-chrome-stable"
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+ARG TARGETARCH=amd64
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor | tee /etc/apt/trusted.gpg.d/google.gpg >/dev/null \
   && echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
   && apt-get update -qqy \
-  && apt-get -qqy install \
-    ${CHROME_VERSION:-google-chrome-stable} \
+  && if echo "${CHROME_VERSION}" | grep -qE "google-chrome-stable_[0-9]*"; \
+    then \
+      wget -qO google-chrome.deb "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/${CHROME_VERSION}_${TARGETARCH}.deb" \
+      && apt-get -qqy --no-install-recommends install --allow-downgrades ./google-chrome.deb \
+      && rm -rf google-chrome.deb ; \
+    else \
+      apt-get -qqy --no-install-recommends install ${CHROME_VERSION} ; \
+    fi \
   && rm /etc/apt/sources.list.d/google-chrome.list \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
-#==================
+#=================================
+# Chrome Launch Script Wrapper
+#=================================
+COPY wrap_chrome_binary /opt/bin/wrap_chrome_binary
+RUN /opt/bin/wrap_chrome_binary
+
+#============================================
 # Chrome webdriver
-#==================
-ARG CHROME_DRIVER_VERSION=2.25
-RUN wget --no-verbose -O /tmp/chromedriver_linux64.zip https://chromedriver.storage.googleapis.com/$CHROME_DRIVER_VERSION/chromedriver_linux64.zip \
+#============================================
+# can specify versions by CHROME_DRIVER_VERSION
+# Latest released version will be used by default
+#============================================
+ARG CHROME_DRIVER_VERSION
+RUN if [ ! -z "$CHROME_DRIVER_VERSION" ]; \
+  then CHROME_DRIVER_URL=https://storage.googleapis.com/chrome-for-testing-public/$CHROME_DRIVER_VERSION/linux64/chromedriver-linux64.zip ; \
+  else CHROME_MAJOR_VERSION=$(google-chrome --version | sed -E "s/.* ([0-9]+)(\.[0-9]+){3}.*/\1/") \
+    && echo "Geting ChromeDriver latest version from https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" \
+    && CHROME_DRIVER_VERSION=$(wget -qO- https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION} | sed 's/\r$//') \
+    && CHROME_DRIVER_URL=https://storage.googleapis.com/chrome-for-testing-public/$CHROME_DRIVER_VERSION/linux64/chromedriver-linux64.zip ; \
+  fi \
+  && echo "Using ChromeDriver from: "$CHROME_DRIVER_URL \
+  && echo "Using ChromeDriver version: "$CHROME_DRIVER_VERSION \
+  && wget --no-verbose -O /tmp/chromedriver_linux64.zip $CHROME_DRIVER_URL \
   && rm -rf /opt/selenium/chromedriver \
   && unzip /tmp/chromedriver_linux64.zip -d /opt/selenium \
   && rm /tmp/chromedriver_linux64.zip \
-  && mv /opt/selenium/chromedriver /opt/selenium/chromedriver-$CHROME_DRIVER_VERSION \
+  && mv /opt/selenium/chromedriver-linux64/chromedriver /opt/selenium/chromedriver-$CHROME_DRIVER_VERSION \
   && chmod 755 /opt/selenium/chromedriver-$CHROME_DRIVER_VERSION \
   && ln -fs /opt/selenium/chromedriver-$CHROME_DRIVER_VERSION /usr/bin/chromedriver
 
-#========================
-# Selenium Configuration
-#========================
-ENV NODE_MAX_INSTANCES 1
-ENV NODE_MAX_SESSION 1
-ENV NODE_REGISTER_CYCLE 5000
-ENV NODE_PORT 5555
-COPY generate_config /opt/selenium/generate_config
-RUN chmod +x /opt/selenium/generate_config
+#============================================
+# Chrome cleanup script and supervisord file
+#============================================
+COPY chrome-cleanup.sh /opt/bin/chrome-cleanup.sh
+COPY chrome-cleanup.conf /etc/supervisor/conf.d/chrome-cleanup.conf
 
-#=================================
-# Chrome Launch Script Modication
-#=================================
-COPY chrome_launcher.sh /opt/google/chrome/google-chrome
-RUN chmod +x /opt/google/chrome/google-chrome
+USER ${SEL_UID}
 
-RUN chown -R seluser:seluser /opt/selenium
+#============================================
+# Dumping Browser information for config
+#============================================
+RUN echo "chrome" > /opt/selenium/browser_name
+RUN google-chrome --version | awk '{print $3}' | cut -d'.' -f1,2 > /opt/selenium/browser_version
+RUN echo "\"goog:chromeOptions\": {\"binary\": \"/usr/bin/google-chrome\"}" > /opt/selenium/browser_binary_location
 
-USER seluser
-# Following line fixes
-# https://github.com/SeleniumHQ/docker-selenium/issues/87
-ENV DBUS_SESSION_BUS_ADDRESS=/dev/null
+ENV SE_OTEL_SERVICE_NAME "selenium-node-chrome"

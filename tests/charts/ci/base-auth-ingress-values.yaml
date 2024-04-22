@@ -1,0 +1,36 @@
+global:
+  seleniumGrid:
+    logLevel: INFO
+    stdoutProbeLog: true
+
+ingress:
+  className: nginx
+  hostname: ""
+
+basicAuth:
+  enabled: false
+
+isolateComponents: true
+
+hub:
+  extraEnvironmentVariables: &extraEnvironmentVariables
+    - name: SE_SESSION_REQUEST_TIMEOUT
+      value: "800"
+    - name: SE_SESSION_RETRY_INTERVAL
+      value: "5"
+    - name: SE_HEALTHCHECK_INTERVAL
+      value: "15"
+    - name: SE_REJECT_UNSUPPORTED_CAPS
+      value: "false"
+
+components:
+  extraEnvironmentVariables: *extraEnvironmentVariables
+
+ingress-nginx:
+  enabled: true
+  controller:
+    hostPort:
+      enabled: true
+    kind: DaemonSet
+    service:
+      type: ClusterIP
